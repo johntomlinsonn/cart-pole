@@ -1,3 +1,9 @@
 ./cart/
 ./cart/*
 
+# Virtual Environment
+cart/
+cart/*
+__pycache__/
+*.py[cod]
+*$py.class
