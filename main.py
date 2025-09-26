@@ -1,9 +1,13 @@
 import mujoco
 import mujoco_viewer
 
-model = mujoco.mj_load_xml('cartpole.xml')
-data = mujoco.mj_makeData(model)
+model = mujoco.MjModel.from_xml_path("cartpole.xml")
+data = mujoco.MjData(model)
 
 viewer = mujoco_viewer.MujocoViewer(model, data)
 
-viewer.render()
+
+
+while True:
+    mujoco.mj_step(model, data)
+    viewer.render()
