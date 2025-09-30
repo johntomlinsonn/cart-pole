@@ -78,7 +78,7 @@ X_LIMIT = 1.0
 THETA_LIMIT_RADIANS = math.radians(12)
 FORCE_MAG = 1.0
 MAX_STEPS_PER_EPISODE = 1000
-RENDER_TRAINING = False
+RENDER_TRAINING = True
 
 def select_action(state, epsilon):
     global steps_done
@@ -116,7 +116,7 @@ viewer = mujoco_viewer.MujocoViewer(model, data) if RENDER_TRAINING else None
 def Intial_state():
     theta = rand.uniform(-math.radians(6), math.radians(6))
     xpos = rand.uniform(-0.05, 0.05)
-    xdot = 0
+    xdot = rand.uniform(-0.5, 0.5)
     theta_dot = 0
     return xpos, xdot, theta, theta_dot
 
@@ -237,6 +237,7 @@ for episode in range(num_episodes):
 
         memory.push(state, action, r, next_state, done)
         optimize_model(device)
+        print(data.qvel[0])
 
         state = next_state
         raw_state = next_raw_state
