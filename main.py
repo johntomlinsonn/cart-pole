@@ -1,17 +1,17 @@
+import math
+import random as rand
+
+import matplotlib.pyplot as plt
 import mujoco
 import mujoco_viewer
-import time
-import random as rand
-import math
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.optim as optim
 import torch.nn.functional as F
-import matplotlib.pyplot as plt
+import torch.optim as optim
 
 class QNetwork(nn.Module):
-    def __init__(self, state_size, action_size, hidden_size=64):
+    def __init__(self, state_size, action_size, hidden_size=128):
         super(QNetwork, self).__init__()
         #nueral network with 2 hidden layers
         self.fc1 = nn.Linear(state_size, hidden_size)
@@ -34,7 +34,13 @@ class ReplayBuffer:
     def push(self, state, action, reward, next_state, done):
         if len(self.buffer) < self.capacity:
             self.buffer.append(None)
-        self.buffer[self.position] = (state, action, reward, next_state, done)
+        self.buffer[self.position] = (
+            np.array(state, dtype=np.float32),
+            action,
+            np.float32(reward),
+            np.array(next_state, dtype=np.float32),
+            bool(done),
+        )
         self.position = (self.position + 1) % self.capacity
 
     def sample(self, batch_size):
@@ -45,7 +51,7 @@ class ReplayBuffer:
     def __len__(self):
         return len(self.buffer)
 
-state_dim = 4  # x, x_dot, theta, theta_dot
+state_dim = 5  # normalized x, x_dot, sin(theta), cos(theta), theta_dot
 action_dim = 2  # left, right
 
 q_network = QNetwork(state_dim, action_dim)
@@ -61,11 +67,18 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 q_network.to(device)
 target_network.to(device)
 
-optimizer = optim.Adam(q_network.parameters(), lr=0.001)
+optimizer = optim.Adam(q_network.parameters(), lr=5e-4)
 #storing the experiences
 memory = ReplayBuffer(10000)
 
 steps_done = 0
+
+# environment limits (from XML) and reward shaping coefficients
+X_LIMIT = 1.0
+THETA_LIMIT_RADIANS = math.radians(12)
+FORCE_MAG = 1.0
+MAX_STEPS_PER_EPISODE = 1000
+RENDER_TRAINING = True
 
 def select_action(state, epsilon):
     global steps_done
@@ -79,13 +92,9 @@ def select_action(state, epsilon):
     else:
         return rand.randrange(action_dim) 
 
-def state_to_tensor(state, device='cpu'):
+def state_to_tensor(state):
     state_np = np.array(state, dtype=np.float32)
     return torch.from_numpy(state_np).unsqueeze(0).to(device)
-
-
-def to_numpy_state(state):
-    return np.array(state, dtype=np.float32)
 
 
 def prepare_batch(batch, device='cpu'):
@@ -101,49 +110,57 @@ def prepare_batch(batch, device='cpu'):
 # Loading the cartpole 3d model for  the enviorment
 model = mujoco.MjModel.from_xml_path("cartpole.xml")
 data = mujoco.MjData(model)
-viewer = mujoco_viewer.MujocoViewer(model, data)
+viewer = mujoco_viewer.MujocoViewer(model, data) if RENDER_TRAINING else None
 
 #Randomizing where the pole is starting 
 def Intial_state():
-    upper_bound = math.pi/8 +2* math.pi
-    lower_bound =  3*(math.pi)/2 + 3* math.pi/8
-    xpos = 0  # x
-    xdot = 0  # x_dot
-    theta = rand.uniform(lower_bound, upper_bound)  # theta
-    #theta = 0
-    theta_dot = 0  # theta_dot
+    theta = rand.uniform(-math.radians(6), math.radians(6))
+    xpos = rand.uniform(-0.05, 0.05)
+    xdot = rand.uniform(-0.5, 0.5)
+    theta_dot = 0
     return xpos, xdot, theta, theta_dot
 
 #Gathering the state of the cartpole
-def gatherState(data):
+def gather_raw_state(data):
     # x, x_dot, theta, theta_dot
-    return [data.qpos[0], data.qvel[0], data.qpos[1], data.qvel[1]]
+    return np.array([data.qpos[0], data.qvel[0], data.qpos[1], data.qvel[1]], dtype=np.float32)
+
+
+def process_state(raw_state):
+    x, x_dot, theta, theta_dot = raw_state
+    sin_theta = math.sin(theta)
+    cos_theta = math.cos(theta)
+    norm_x = np.clip(x / X_LIMIT, -1.0, 1.0)
+    norm_x_dot = np.tanh(x_dot)
+    norm_theta_dot = np.tanh(theta_dot)
+    return np.array([norm_x, norm_x_dot, sin_theta, cos_theta, norm_theta_dot], dtype=np.float32)
 
 #Pushing the cart left or right with a certain force
-def right(data, force=1, delta_time = 0.05):
-    accel = force
-    data.qvel[1] =  data.qvel[1] + accel * delta_time
+def right(data, force=FORCE_MAG):
+    data.ctrl[0] = np.clip(force, -1.0, 1.0)
 
-def left(data, force=1, delta_time = 0.05):
-    accel = -force
-    data.qvel[1] =  data.qvel[1] + accel * delta_time
+
+def left(data, force=FORCE_MAG):
+    data.ctrl[0] = np.clip(-force, -1.0, 1.0)
 
 #Reward function to see how well the cartpole is doing
-def close_to_0_degrees(theta):
-    d = abs(theta - 2 * math.pi)
-    closeness_percent = 100 * (1 - d / (math.pi / 4))
-    return max(0, closeness_percent)
-
-def reward(state, num_steps):
-    x, x_dot, theta, theta_dot = state
-    x_reward = (1 - abs(0-x))*100
-    theta_reward = close_to_0_degrees(theta)
-    if theta_reward <= 0:
-        return -10000
-    return x_reward + theta_reward
+def compute_reward(raw_state):
+    x, x_dot, theta, theta_dot = raw_state
+    angle_error = abs(theta)
+    position_error = abs(x)
+    reward = 1.0
+    reward -= 2.0 * (angle_error / THETA_LIMIT_RADIANS)
+    reward -= 0.5 * (position_error / X_LIMIT)
+    reward -= 0.01 * (abs(x_dot) + abs(theta_dot))
+    return max(reward, -2.0)
 
 
-num_episodes = 5000
+def is_terminal(raw_state):
+    x, _, theta, _ = raw_state
+    return abs(theta) > THETA_LIMIT_RADIANS or abs(x) > X_LIMIT
+
+
+num_episodes = 300
 batch_size = 64
 EPSILON_START = 1.0
 EPSILON_END = 0.01
@@ -195,10 +212,14 @@ def save_reward_plot(rewards, filename='total_reward.png'):
 
 for episode in range(num_episodes):
     data.qpos[0], data.qvel[0], data.qpos[1], data.qvel[1] = Intial_state()
+    data.ctrl[:] = 0
     total_reward = 0
-    while 10_000:
-        viewer.render()
-        state = gatherState(data)
+    raw_state = gather_raw_state(data)
+    state = process_state(raw_state)
+    for _ in range(MAX_STEPS_PER_EPISODE):
+        if RENDER_TRAINING:
+            viewer.render()
+
         epsilon = EPSILON_END + (EPSILON_START - EPSILON_END) * \
                   np.exp(-1. * steps_done / EPSILON_DECAY)
         action = select_action(state, epsilon)
@@ -206,29 +227,35 @@ for episode in range(num_episodes):
             left(data)
         else:
             right(data)
+
         mujoco.mj_step(model, data)
-        next_state = gatherState(data)
-        r = reward(next_state, steps_done)
-        done = (close_to_0_degrees(next_state[2]) == 0)
-        memory.push(to_numpy_state(state), action, r, to_numpy_state(next_state), done)
-        # train step: try optimizing the model
+        next_raw_state = gather_raw_state(data)
+        next_state = process_state(next_raw_state)
+
+        r = compute_reward(next_raw_state)
+        done = is_terminal(next_raw_state)
+
+        memory.push(state, action, r, next_state, done)
         optimize_model(device)
+        print(data.qvel[0])
 
         state = next_state
+        raw_state = next_raw_state
         total_reward += r
 
-        # periodically update the target network
         if steps_done % TARGET_UPDATE == 0:
             target_network.load_state_dict(q_network.state_dict())
 
         if done:
             break
-    # end of episode: record total reward
+
     episode_rewards.append(total_reward)
     print(f"Episode {episode+1}/{num_episodes} finished - total_reward={total_reward:.2f}")
+    save_reward_plot(episode_rewards, 'total_reward.png')
 
-# training finished — save the rewards plot
-save_reward_plot(episode_rewards, 'total_reward.png')
+
+if viewer is not None:
+    viewer.close()
 
 
 
