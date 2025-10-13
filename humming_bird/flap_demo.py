@@ -3,7 +3,7 @@ import math
 import mujoco
 import mujoco.viewer
 
-MODEL_PATH = 'humming_bird.xml'
+MODEL_PATH = './humming_bird/humming_bird.xml'
 
 # Simple flapping demo to validate joints and motors
 if __name__ == '__main__':
