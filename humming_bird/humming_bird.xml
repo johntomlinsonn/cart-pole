@@ -1,0 +1,109 @@
+<mujoco model="humming_bird">
+	<compiler angle="degree" coordinate="local" inertiafromgeom="true" />
+	<option gravity="0 0 -9.81" timestep="0.00002" integrator="RK4" />
+
+	<!-- Visuals and defaults -->
+	<asset>
+		<texture name="tex" type="skybox" builtin="gradient" rgb1="0.8 0.9 1" rgb2="0.2 0.3 0.5" width="256" height="256" />
+		<material name="mat_torso" rgba="0.2 0.2 0.2 1" specular="0.3" shininess="0.2" />
+		<material name="mat_head"  rgba="0.1 0.5 0.1 1" specular="0.3" shininess="0.3" />
+		<material name="mat_beak"  rgba="0.1 0.1 0.1 1" specular="0.1" />
+		<material name="mat_wing"  rgba="0.25 0.25 0.25 0.95" specular="0.1" />
+		<material name="mat_tail"  rgba="0.15 0.15 0.15 1" />
+	</asset>
+
+	<default>
+		<!-- Choose density so that the total mass (~1.34e-5 m^3 total volume) is about 4.5 g -->
+		<geom density="335" friction="0.4 0.02 0.01" margin="0.002" condim="3" contype="1" conaffinity="1" rgba="0.6 0.6 0.6 1" />
+		<joint limited="true" damping="0.002" armature="0.00001" />
+		<motor ctrllimited="true" ctrlrange="-1 1" />
+	</default>
+
+	<worldbody>
+		<light pos="0 0 1.2" dir="0 0 -1" diffuse="0.8 0.8 0.8" specular="0.2 0.2 0.2" />
+		<geom name="ground" type="plane" material="" size="2 2 0.05" rgba="0.9 0.9 0.9 1" contype="1" conaffinity="1" />
+
+		<!-- Free-flying bird root -->
+		<body name="bird" pos="0 0 3.2">
+			<freejoint name="root" />
+
+			<!-- Torso as a capsule oriented along +y (forward) -->
+			<body name="torso" pos="0 0 0">
+				<geom name="torso_capsule" type="capsule" fromto="0 -0.0175 0  0 0.0175 0" size="0.008" material="mat_torso" />
+
+				<!-- Head (small sphere) slightly up and forward -->
+				<geom name="head" type="sphere" pos="0 0.028 0.006" size="0.006" material="mat_head" />
+
+				<!-- Beak as a small forward capsule -->
+				<geom name="beak" type="capsule" fromto="0 0.034 0.006  0 0.049 0.006" size="0.002" material="mat_beak" />
+
+			<!-- Tail as a thin box slightly back and down (longer for realism) -->
+			<geom name="tail" type="box" pos="0 -0.026 -0.004" size="0.015 0.0125 0.001" material="mat_tail" />
+
+				<!-- RIGHT WING: shoulder (flap) then wing (pitch) with a thin box geom -->
+						<body name="right_shoulder" pos="0.010 0.002 0.002">
+							<!-- Small mass element so the moving body has non-zero mass/inertia -->
+							<geom name="right_shoulder_stub" type="sphere" pos="0 0 0" size="0.001" material="mat_torso" />
+					<!-- Flapping about +y (forward) axis: up-down stroke -->
+					<joint name="right_flap" type="hinge" axis="0 1 0" range="-75 75" damping="0.002" />
+					<body name="right_wing" pos="0 0 0">
+									<!-- Small mass element near wing root -->
+									<geom name="right_wing_root" type="sphere" pos="0.003 0 0" size="0.0008" material="mat_torso" />
+						<!-- Pitching about +x (spanwise) axis: angle of attack control -->
+						<joint name="right_pitch" type="hinge" axis="1 0 0" range="-45 45" damping="0.0008" />
+						<!-- Wing as a thin rectangular plate; half-sizes: [0.025 L, 0.0075 W, 0.0001 T] (0.2 mm thick) -->
+						<geom name="right_wing_geom" type="box" pos="0.025 0 0" size="0.025 0.0075 0.0001" material="mat_wing" contype="1" conaffinity="1" />
+					</body>
+				</body>
+
+				<!-- LEFT WING: mirrored -->
+						<body name="left_shoulder" pos="-0.010 0.002 0.002">
+							<!-- Small mass element so the moving body has non-zero mass/inertia -->
+							<geom name="left_shoulder_stub" type="sphere" pos="0 0 0" size="0.001" material="mat_torso" />
+					<joint name="left_flap" type="hinge" axis="0 1 0" range="-75 75" damping="0.002" />
+					<body name="left_wing" pos="0 0 0">
+									<!-- Small mass element near wing root -->
+									<geom name="left_wing_root" type="sphere" pos="-0.003 0 0" size="0.0008" material="mat_torso" />
+						<!-- Negative axis so that positive control has same effect as right -->
+						<joint name="left_pitch" type="hinge" axis="-1 0 0" range="-45 45" damping="0.0008" />
+									<geom name="left_wing_geom" type="box" pos="-0.025 0 0" size="0.025 0.0075 0.0001" material="mat_wing" contype="1" conaffinity="1" />
+								</body>
+							</body>
+
+							<!-- IMU site for sensors -->
+							<site name="imu" pos="0 0 0" size="0.002" rgba="0.8 0.2 0.2 1" />
+
+				<!-- Optional: tiny legs just for visual reference (no joints) -->
+			<!-- Shorter feet/legs to match hummingbird proportions -->
+			<geom name="leg_right" type="capsule" fromto="0.004 -0.005 -0.002  0.004 -0.012 -0.012" size="0.0015" rgba="0.1 0.1 0.1 1" />
+			<geom name="leg_left"  type="capsule" fromto="-0.004 -0.005 -0.002  -0.004 -0.012 -0.012" size="0.0015" rgba="0.1 0.1 0.1 1" />
+			</body>
+		</body>
+	</worldbody>
+
+	<!-- Actuators: Motors at the places real muscles actuate -->
+	<actuator>
+		<!-- Shoulder depressor/elevator: flapping power -->
+		<motor name="motor_right_flap" joint="right_flap" gear="0.01" />
+		<motor name="motor_left_flap"  joint="left_flap"  gear="0.01" />
+
+		<!-- Wing pronation/supination: angle-of-attack control -->
+		<motor name="motor_right_pitch" joint="right_pitch" gear="0.004" />
+		<motor name="motor_left_pitch"  joint="left_pitch"  gear="0.004" />
+	</actuator>
+
+	<!-- A few sensors can be helpful for control later -->
+		<sensor>
+		<jointpos name="s_right_flap" joint="right_flap" />
+		<jointpos name="s_left_flap"  joint="left_flap" />
+		<jointpos name="s_right_pitch" joint="right_pitch" />
+		<jointpos name="s_left_pitch"  joint="left_pitch" />
+			<accelerometer name="imu_acc" site="imu" />
+	</sensor>
+
+	<!-- Notes:
+			 - Total volume across geoms is ~1.34e-5 m^3; with density 335 kg/m^3 the total mass is ~0.0045 kg (4.5 g),
+				 within a typical hummingbird (3–5 g).
+			 - Wingspan is ~0.10 m (each wing length ~0.05 m), and body length ~0.07 m including head/beak.
+			 - Motors correspond to primary flight muscles: flap (pectoralis/supracoracoideus) and pitch control. -->
+</mujoco>
