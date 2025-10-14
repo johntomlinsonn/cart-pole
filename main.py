@@ -230,8 +230,9 @@ for episode in range(num_episodes):
     total_reward = 0
     raw_state = gather_raw_state(data)
     state = process_state(raw_state)
+    actions = []
     for _ in range(MAX_STEPS_PER_EPISODE):
-        actions = []
+        
         if RENDER_TRAINING:
             viewer.render()
 
@@ -253,7 +254,7 @@ for episode in range(num_episodes):
 
         memory.push(state, action, r, next_state, done)
         optimize_model(device)
-        
+
         state = next_state
         raw_state = next_raw_state
         total_reward += r
@@ -267,7 +268,7 @@ for episode in range(num_episodes):
     episode_rewards.append(total_reward)
     print(f"Episode {episode+1}/{num_episodes} finished - total_reward={total_reward:.2f}")
     save_reward_plot(episode_rewards, 'total_reward.png')
-    if episode > 100 and episode % 10 == 0:
+    if episode % 10 == 0:
         plot_actions(actions,f"actions_over_time_{episode}.png")
 
 
