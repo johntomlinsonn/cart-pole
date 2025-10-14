@@ -78,7 +78,7 @@ X_LIMIT = 1.0
 THETA_LIMIT_RADIANS = math.radians(12)
 FORCE_MAG = 1.0
 MAX_STEPS_PER_EPISODE = 1000
-RENDER_TRAINING = True
+RENDER_TRAINING = False
 
 def select_action(state, epsilon):
     global steps_done
@@ -210,6 +210,20 @@ def save_reward_plot(rewards, filename='total_reward.png'):
     plt.savefig(filename, dpi=200)
     plt.close()
 
+def plot_actions(actions, filename="actions_taken.png"):
+    plt.figure(figsize=(8, 5))
+    plt.plot(actions, label='action_taken')
+    plt.xlabel('Step')
+    plt.ylabel('Total Reward')
+    plt.title('ACtions taken')
+    plt.grid(True)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(filename, dpi=200)
+    plt.close()
+
+
+
 for episode in range(num_episodes):
     data.qpos[0], data.qvel[0], data.qpos[1], data.qvel[1] = Intial_state()
     data.ctrl[:] = 0
@@ -217,12 +231,14 @@ for episode in range(num_episodes):
     raw_state = gather_raw_state(data)
     state = process_state(raw_state)
     for _ in range(MAX_STEPS_PER_EPISODE):
+        actions = []
         if RENDER_TRAINING:
             viewer.render()
 
         epsilon = EPSILON_END + (EPSILON_START - EPSILON_END) * \
                   np.exp(-1. * steps_done / EPSILON_DECAY)
         action = select_action(state, epsilon)
+        actions.append(action)
         if action == 0:
             left(data)
         else:
@@ -237,8 +253,7 @@ for episode in range(num_episodes):
 
         memory.push(state, action, r, next_state, done)
         optimize_model(device)
-        print(data.qvel[0])
-
+        
         state = next_state
         raw_state = next_raw_state
         total_reward += r
@@ -252,6 +267,9 @@ for episode in range(num_episodes):
     episode_rewards.append(total_reward)
     print(f"Episode {episode+1}/{num_episodes} finished - total_reward={total_reward:.2f}")
     save_reward_plot(episode_rewards, 'total_reward.png')
+    if episode > 100 and episode % 10 == 0:
+        plot_actions(actions,f"actions_over_time_{episode}.png")
+
 
 
 if viewer is not None:
