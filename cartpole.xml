@@ -41,7 +41,7 @@
   </worldbody>
 
   <actuator>
-    <motor name='slide' joint='slider' gear='50' ctrllimited='true' ctrlrange='-1 1' />
+    <motor name='slide' joint='slider' gear='50' ctrllimited='true' ctrlrange='-2 2' />
   </actuator>
 
   <sensor>
